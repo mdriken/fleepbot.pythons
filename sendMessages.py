@@ -1,5 +1,14 @@
 import requests
 import json
+import pymysql
+import  time
+# koneksi database
+connection = pymysql.connect(host='localhost',
+                             user='root',
+                             password='',
+                             db='fleep',
+                             cursorclass=pymysql.cursors.DictCursor)
+cursor =connection.cursor()
 
 r = requests.post("https://fleep.io/api/account/login",
                   headers = {"Content-Type": "application/json"},
@@ -8,19 +17,23 @@ r = requests.post("https://fleep.io/api/account/login",
 ticket=r.json()["ticket"]
 token=r.cookies["token_id"]
 
-#messagestore
-r = requests.post("https://fleep.io/api/conversation/list",
-    headers = {"Content-Type": "application/json"},
-    cookies = {"token_id": token},
-    data = json.dumps({"ticket": ticket}))
+def sendMessage():
+    cursor.execute("SELECT * FROM outbox where status=1")
+    outboxes=cursor.fetchall()
 
-#mendapatkan conversation id
-# nb : hanya yang pertama, bisa di loop
-conv_id=r.json()['conversations'][0]['conversation_id']
-print(conv_id)
+    for outbox in outboxes:
+        conv_id=outbox['conversation_id']
+        r = requests.post("https://fleep.io/api/message/send/"+conv_id,
+            headers = {"Content-Type": "application/json"},
+            cookies = {"token_id": token},
+            data = json.dumps({"message": outbox['message'], "ticket": ticket}))
 
-# send message
-r = requests.post("https://fleep.io/api/message/send/"+conv_id,
-    headers = {"Content-Type": "application/json"},
-    cookies = {"token_id": token},
-    data = json.dumps({"message": "Ini Bot brow1z!!!", "ticket": ticket}))
+        sql_update="UPDATE outbox set status=0 where id=%s"%(outbox['id'])
+        cursor.execute(sql_update)
+        connection.commit()
+    connection.rollback()
+
+while True:
+    sendMessage()
+    print("cek....")
+    time.sleep(1)
